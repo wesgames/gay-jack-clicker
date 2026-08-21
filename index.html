@@ -1053,7 +1053,8 @@
   body.storming { background-color: #0A0210; }
 
   #weather-banner {
-    position: fixed; top: 14px; left: 50%;
+    position: fixed; top: 14px;
+    left: calc((100% - var(--panel-w)) / 2);   /* sits over the clicker, not the panel */
     transform: translateX(-50%);
     z-index: 70; display: none;
     align-items: center; gap: 11px;
@@ -1084,7 +1085,8 @@
   #w-icon { font-size: 1.3rem; }
 
   #weather-timer {
-    position: fixed; top: 14px; left: 50%;
+    position: fixed; top: 14px;
+    left: calc((100% - var(--panel-w)) / 2);
     transform: translateX(-50%);
     z-index: 69; display: none;
     align-items: center; gap: 9px;
@@ -1155,7 +1157,8 @@
   #weather-banner.w-storm #w-mult { animation: storm-pulse 0.6s infinite; }
 
   @media (max-width: 860px) {
-    #weather-banner { top: 8px; padding: 7px 14px 7px 11px; gap: 8px; }
+    #weather-banner, #weather-timer { top: 8px; left: 50%; }
+    #weather-banner { padding: 7px 14px 7px 11px; gap: 8px; }
     #w-name { font-size: 0.78rem; }
   }
 </style>
@@ -1293,7 +1296,7 @@
         <button class="board-btn primary" onclick="logRun()">Update my score now</button>
       </div>
       <div id="board-msg"></div>
-      <div id="board-legend">Ranked by total earned — spending never costs you a place.
+      <div id="board-legend">Ranked by money in the bank right now.
         <span id="board-timer"></span></div>
       <div id="board-list"></div>
     </div>
@@ -1393,6 +1396,26 @@
   const counts   = {};   // building id -> owned
   const boughtUp = new Set();
   BUILDINGS.forEach(b => counts[b.id] = 0);
+
+  // Blocks slurs and the obvious dodges (leetspeak, padding, repeats) from
+  // ending up on a public board.
+  const BANNED = [
+    /n[ ]?i[ ]?g[ ]?g+(er|a|uh)?/, /f[ ]?a[ ]?g+(ot|s)?/, /kike/, /chink/,
+    /spic[k]?/, /trann(y|ie)/, /retard/, /coon/, /wetback/, /paki/,
+    /nazi/, /hitler/, /rapist/
+  ];
+
+  // Normalise leetspeak first (n1gg4 -> nigga), then match. Catches the
+  // usual dodges: digits for letters, padding, repeated characters.
+  function cleanName(name) {
+    const flat = String(name).toLowerCase()
+      .replace(/[1!|l]/g, 'i').replace(/[3]/g, 'e').replace(/[4@]/g, 'a')
+      .replace(/[0]/g, 'o').replace(/[5$]/g, 's').replace(/[7]/g, 't')
+      .replace(/[^a-z]/g, '')
+      .replace(/(.)\1{2,}/g, '$1$1');
+    return !BANNED.some(re => re.test(flat));
+  }
+  window.cleanName = cleanName;
 
   let score = 0, clickPower = 1, autoPerSec = 0, buyAmount = 1;
   let currentUser = null;   // declared here so load-time rendering can read it safely
@@ -1622,9 +1645,18 @@
   const bgMusic     = document.getElementById('bg-music');
   let musicMuted = false, sfxMuted = false, musicStarted = false;
 
-  document.addEventListener('click', () => {
-    if (!musicStarted) { musicStarted = true; bgMusic.volume = 0.35; bgMusic.play().catch(()=>{}); }
-  }, { once: true });
+  // Hold the game song back until the player is actually in the game, so it
+  // can't start underneath the intro.
+  function startGameMusic() {
+    if (musicStarted || musicMuted) return;
+    const gw = document.getElementById('game-wrap');
+    if (!gw || !gw.classList.contains('visible')) return;
+    musicStarted = true;
+    bgMusic.volume = 0.35;
+    bgMusic.play().catch(() => {});
+  }
+  document.addEventListener('click', startGameMusic);
+  window.startGameMusic = startGameMusic;
 
   function toggleMusic() {
     musicMuted = !musicMuted;
@@ -1792,6 +1824,150 @@
       thunder() {
         tone({ from: 90, to: 38, dur: 1.4, type: 'sawtooth', vol: 0.13 });
         noise({ dur: 1.5, freq: 260, vol: 0.22, filter: 'lowpass' });
+      }
+    };
+  })();
+
+  // ===== INTRO MUSIC =====
+  // Written to the cutscene's beats: warp (0s), cube approach (2.2s),
+  // impact (4.2s), title (5s). Synthesised, so it costs nothing in filesize.
+  const IntroMusic = (function () {
+    let ctx = null, live = [], playing = false, startedAt = 0;
+
+    function ac() {
+      try {
+        if (!ctx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return null;
+          ctx = new AC();
+        }
+        if (ctx.state === 'suspended') ctx.resume();
+        return ctx;
+      } catch (e) { return null; }
+    }
+
+    function note(at, freq, dur, type, vol, glideTo) {
+      const c = ctx, t = Math.max(c.currentTime, startedAt + at);
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type || 'sawtooth';
+      o.frequency.setValueAtTime(freq, t);
+      if (glideTo) o.frequency.exponentialRampToValueAtTime(glideTo, t + dur);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(c.destination);
+      o.start(t); o.stop(t + dur + 0.05);
+      live.push(o);
+    }
+
+    function hit(at, dur, freq, vol, type) {
+      const c = ctx, t = Math.max(c.currentTime, startedAt + at);
+      const len = Math.max(1, Math.floor(c.sampleRate * dur));
+      const buf = c.createBuffer(1, len, c.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+      src.buffer = buf;
+      f.type = type || 'lowpass';
+      f.frequency.value = freq;
+      g.gain.value = vol;
+      src.connect(f).connect(g).connect(c.destination);
+      src.start(t);
+      live.push(src);
+    }
+
+    // A minor: A2 110, C4 261.6, D4 293.7, E4 329.6, A4 440, C5 523.3, E5 659.3
+    function score(from) {
+      const at = t => t >= from;          // skip anything already gone by
+
+      // -- warp: pulsing bass and a climbing arpeggio
+      for (let i = 0; i < 9; i++) {
+        const t = i * 0.25;
+        if (at(t)) note(t, 55, 0.22, 'sawtooth', 0.10);
+      }
+      const arp = [220, 261.6, 329.6, 440, 523.3, 659.3];
+      for (let i = 0; i < 12; i++) {
+        const t = 0.3 + i * 0.16;
+        if (at(t)) note(t, arp[i % arp.length] * (i > 5 ? 2 : 1), 0.14, 'square', 0.05);
+      }
+
+      // -- approach: a riser winding up to the impact
+      if (at(2.2)) note(2.2, 180, 1.9, 'sawtooth', 0.09, 1800);
+      for (let i = 0; i < 8; i++) {
+        const t = 2.2 + i * 0.25;
+        if (at(t)) note(t, 82.4, 0.2, 'square', 0.09);
+      }
+      for (let i = 0; i < 6; i++) {                 // accelerating ticks
+        const t = 3.2 + i * (0.16 - i * 0.015);
+        if (at(t)) hit(t, 0.05, 4000, 0.06, 'highpass');
+      }
+
+      // -- impact
+      if (at(4.2)) {
+        note(4.2, 110, 1.2, 'sine', 0.22, 32);
+        hit(4.2, 0.7, 900, 0.28);
+        note(4.25, 55, 1.6, 'sawtooth', 0.12);
+      }
+
+      // -- title theme
+      const beat = 0.32;
+      for (let i = 0; i < 12; i++) {                // kick
+        const t = 4.6 + i * beat;
+        if (at(t)) note(t, 90, 0.16, 'sine', 0.16, 40);
+      }
+      for (let i = 0; i < 12; i++) {                // hats
+        const t = 4.76 + i * beat;
+        if (at(t)) hit(t, 0.04, 7000, 0.035, 'highpass');
+      }
+      const tune = [440, 523.3, 659.3, 587.3, 523.3, 659.3, 880, 659.3];
+      tune.forEach((f, i) => {
+        const t = 5.0 + i * beat;
+        if (at(t)) {
+          note(t, f, 0.30, 'triangle', 0.13);
+          note(t, f / 2, 0.30, 'square', 0.045);
+        }
+      });
+      if (at(7.6)) {                                // closing chord
+        [220, 261.6, 329.6, 440].forEach(f => note(7.6, f, 1.3, 'triangle', 0.07));
+        hit(7.6, 1.0, 3000, 0.05, 'highpass');
+      }
+    }
+
+    return {
+      play() {
+        if (musicMuted) return;
+        const c = ac();
+        if (!c) return;
+        this.stop();
+
+        if (c.state === 'suspended') {
+          // Browsers won't let audio start before the page is touched. Wait
+          // quietly for any interaction, then join the score already in
+          // progress so it stays lined up with the visuals.
+          const began = Date.now();
+          const wake = function () {
+            c.resume().then(function () {
+              const elapsed = (Date.now() - began) / 1000;
+              if (elapsed > 8.6) return;          // intro already over
+              playing = true;
+              startedAt = c.currentTime - elapsed;
+              score(elapsed);
+            }).catch(function () {});
+          };
+          document.addEventListener('pointerdown', wake, { once: true });
+          document.addEventListener('keydown', wake, { once: true });
+          document.addEventListener('touchstart', wake, { once: true });
+          return;
+        }
+
+        playing = true;
+        startedAt = c.currentTime + 0.05;
+        score(0);
+      },
+      stop() {
+        playing = false;
+        live.forEach(n => { try { n.stop(); } catch (e) {} });
+        live = [];
       }
     };
   })();
@@ -2364,7 +2540,7 @@
       if (!r || typeof r.s !== 'number') return;
       const local = board.find(e => e.u === k);
       if (!local) board.push(r);
-      else if (r.s > local.s) Object.assign(local, r);
+      else if ((r.d || 0) > (local.d || 0)) Object.assign(local, r);   // newest wins
     });
     saveBoard();
     renderBoard();
@@ -2405,7 +2581,8 @@
     return {
       n: name,
       u: name ? name.toLowerCase() : '',
-      s: Math.floor(stats.earned),          // lifetime earned, so spending never costs you rank
+      s: Math.floor(score),                  // your actual money, live
+      e: Math.floor(stats.earned),           // all-time, shown underneath
       c: autoPerSec,
       b: BUILDINGS.reduce((a, x) => a + counts[x.id], 0),
       a: unlockedAch.size,
@@ -2428,7 +2605,8 @@
       board.push(snap);
     } else {
       row.n = currentUser;
-      row.s = Math.max(row.s || 0, snap.s);
+      row.s = snap.s;                  // mirrors your money, up or down
+      row.e = snap.e;
       row.c = snap.c; row.b = snap.b; row.a = snap.a; row.t = snap.t;
       row.d = snap.d; row.me = 1;
     }
@@ -2511,7 +2689,8 @@
         '<span class="board-main">' +
           '<span class="board-name">' + escapeHtml(e.n) + (isMe ? ' <em>you</em>' : '') + '</span>' +
           '<span class="board-meta">' + fmt(e.c) + '/sec \u00b7 ' + e.b + ' buildings \u00b7 ' +
-            e.a + ' trophies \u00b7 ' + playtime(e.t) + '</span>' +
+            e.a + ' trophies \u00b7 ' + playtime(e.t) +
+            (e.e ? ' \u00b7 ' + fmt(e.e) + ' all-time' : '') + '</span>' +
         '</span>' +
         '<span class="board-score">' + fmt(e.s) + '</span>';
       boardEl.appendChild(row);
@@ -2605,6 +2784,8 @@
     refreshAchievements();
     recalc();
     updateDisplay(); refreshShop();
+    syncBoard(true);                   // show the 0 immediately
+    cloudSyncBoard();
   }
 
   setInterval(saveGame, 10000);
@@ -2871,6 +3052,7 @@
       if (done) return;
       done = true;
       cancelAnimationFrame(raf);
+      IntroMusic.stop();
       wrap.classList.add('cs-fade');
       setTimeout(() => { wrap.style.display = 'none'; if (window.afterIntro) window.afterIntro(); }, 700);
     }
@@ -3086,9 +3268,11 @@
       wrap.classList.remove('cs-fade');
       sizeCanvas();
       raf = requestAnimationFrame(frame);
+      IntroMusic.play();
     };
 
     raf = requestAnimationFrame(frame);
+    IntroMusic.play();
     // rAF is paused in background tabs and stops dead on error;
     // this guarantees the intro ends no matter what.
     setTimeout(function () { if (!done) skip(); }, 11000);
@@ -3167,25 +3351,6 @@
     loginNote.className = kind || '';
   }
 
-  // Blocks slurs and the obvious dodges (leetspeak, padding, repeats) from
-  // ending up on a public board.
-  const BANNED = [
-    /n[ ]?i[ ]?g[ ]?g+(er|a|uh)?/, /f[ ]?a[ ]?g+(ot|s)?/, /kike/, /chink/,
-    /spic[k]?/, /trann(y|ie)/, /retard/, /coon/, /wetback/, /paki/,
-    /nazi/, /hitler/, /rapist/
-  ];
-
-  // Normalise leetspeak first (n1gg4 -> nigga), then match. Catches the
-  // usual dodges: digits for letters, padding, repeated characters.
-  function cleanName(name) {
-    const flat = String(name).toLowerCase()
-      .replace(/[1!|l]/g, 'i').replace(/[3]/g, 'e').replace(/[4@]/g, 'a')
-      .replace(/[0]/g, 'o').replace(/[5$]/g, 's').replace(/[7]/g, 't')
-      .replace(/[^a-z]/g, '')
-      .replace(/(.)\1{2,}/g, '$1$1');
-    return !BANNED.some(re => re.test(flat));
-  }
-  window.cleanName = cleanName;
 
   function readFields() {
     const u = userField.value.trim().slice(0, 16);
@@ -3307,6 +3472,25 @@
     updateDisplay();
     checkUpgrades();
   };
+
+  window.__bootOK = true;   // reached the end of the script cleanly
+</script>
+<script>
+// If the main script died partway through, the login screen can still appear
+// while every button is dead. Say so plainly instead of looking broken.
+setTimeout(function () {
+  if (window.__bootOK) return;
+  var bad = [];
+  ['doLogin','doSignup','togglePass','handleClick','playIntro'].forEach(function (f) {
+    if (typeof window[f] !== 'function') bad.push(f);
+  });
+  var box = document.createElement('div');
+  box.style.cssText = 'position:fixed;inset:auto 0 0 0;z-index:9999;background:#2A0410;border-top:2px solid #FF5C7A;color:#FFD9E2;font:600 13px Nunito,sans-serif;padding:14px 18px;text-align:center;line-height:1.6';
+  box.innerHTML = "<b>The game didn't finish loading, so the buttons won't respond.</b><br>" +
+    "Press Ctrl+Shift+R for a fresh copy. If it keeps happening, press F12, open Console, " +
+    "and send the red error text." + (bad.length ? "<br><span style='opacity:.7'>Missing: " + bad.join(", ") + "</span>" : "");
+  document.body.appendChild(box);
+}, 4000);
 </script>
 </body>
 </html>
