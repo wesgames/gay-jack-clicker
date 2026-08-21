@@ -147,6 +147,12 @@
     letter-spacing: 0.02em;
   }
 
+  #earned-display {
+    font-size: 0.76rem; font-weight: 800;
+    color: var(--faint); margin-top: 3px;
+    letter-spacing: 0.02em;
+  }
+
   #multiplier-badge {
     display: inline-block; margin-top: 12px;
     padding: 5px 12px;
@@ -930,6 +936,23 @@
     color: var(--faint);
   }
 
+  .pass-wrap { position: relative; }
+
+  .pass-wrap input { padding-right: 44px !important; }
+
+  #pass-eye {
+    position: absolute; right: 6px; top: 50%;
+    transform: translateY(-50%);
+    width: 32px; height: 32px;
+    display: grid; place-items: center;
+    background: none; border: none;
+    border-radius: 8px; cursor: pointer;
+    font-size: 0.95rem; line-height: 1;
+    opacity: 0.55; transition: opacity 0.15s, background 0.15s;
+  }
+  #pass-eye:hover { opacity: 1; background: rgba(255,255,255,0.06); }
+  #pass-eye.shown { opacity: 1; }
+
   .field input {
     width: 100%; padding: 11px 13px;
     background: var(--sunk);
@@ -945,6 +968,7 @@
     box-shadow: 0 0 0 3px rgba(255,79,163,0.16);
   }
   .field input::placeholder { color: var(--faint); font-weight: 600; }
+
 
   #login-note {
     min-height: 17px; margin: 2px 0 14px;
@@ -1195,7 +1219,10 @@
     </div>
     <div class="field">
       <label for="login-pass">Password</label>
-      <input id="login-pass" type="password" autocomplete="current-password" placeholder="At least 4 characters">
+      <div class="pass-wrap">
+        <input id="login-pass" type="password" autocomplete="current-password" placeholder="At least 4 characters">
+        <button type="button" id="pass-eye" onclick="togglePass()" aria-label="Show password" title="Show password">👁️</button>
+      </div>
     </div>
     <div id="login-note"></div>
     <button class="login-btn go" onclick="doLogin()">Log in</button>
@@ -1213,6 +1240,7 @@
       <div id="game-title">🏳️‍🌈 Jack Bruce Clicker 2</div>
       <div id="score-display">0</div>
       <div id="cps-display">0 auto / sec</div>
+    <div id="earned-display">0 earned all-time</div>
       <div id="multiplier-badge">×1 per click</div>
     </div>
 
@@ -1777,6 +1805,8 @@
   function updateDisplay() {
     scoreEl.textContent   = fmt(score);
     cpsEl.textContent     = fmt(autoPerSec) + ' auto / sec';
+    const earnedEl = document.getElementById('earned-display');
+    if (earnedEl) earnedEl.textContent = fmt(stats.earned) + ' earned all-time';
     multBadge.textContent = '×' + (clickPower < 100 ? Math.round(clickPower*100)/100 : fmt(clickPower)) + ' per click';
   }
 
@@ -2282,6 +2312,25 @@
     const key  = currentUser.toLowerCase();
     const data = parseSave(LS.get(SAVE_KEY));
     if (!data) return;
+
+    // Guard against wiping real progress: if the copy in the cloud is further
+    // along than this device, pull it down instead of pushing over it. A
+    // deliberate Reset clears the cloud copy first, so this can't undo that.
+    if (!keepalive) {
+      const remote = await Cloud.get('saves/' + key);
+      if (!Cloud.failed && remote) {
+        const here  = (data.stats && data.stats.earned) || 0;
+        const there = (remote.stats && remote.stats.earned) || 0;
+        if (there > here) {
+          LS.set(SAVE_KEY, JSON.stringify(remote));
+          loadGame();
+          refreshAchievements(); refreshShop(); recalc(); updateDisplay();
+          cloudStatus('Restored from cloud', 'ok');
+          return;
+        }
+      }
+    }
+
     const ok = await Cloud.put('saves/' + key, data, keepalive);
     cloudStatus(ok ? 'Synced' : 'Offline \u2014 saved here', ok ? 'ok' : 'warn');
   }
@@ -2441,7 +2490,7 @@
       return;
     }
     const meKey = currentUser ? currentUser.toLowerCase() : null;
-    board.forEach((e, i) => {
+    board.filter(e => cleanName(e.n)).forEach((e, i) => {
       const isMe = !!meKey && e.u === meKey;
       const row = document.createElement('div');
       row.className = 'board-row' + (isMe ? ' mine' : '');
@@ -2536,6 +2585,7 @@
   function resetGame() {
     if (!confirm('Reset ALL progress?')) return;
     LS.del(SAVE_KEY);
+    if (Cloud.on() && currentUser) Cloud.put('saves/' + currentUser.toLowerCase(), null);
     score = 0;
     BUILDINGS.forEach(b => counts[b.id] = 0);
     boughtUp.clear();
@@ -3085,6 +3135,7 @@
 
   function showLogin() {
     loginScreen.style.display = 'grid';
+    if (passField.type === 'text') togglePass();   // start hidden every time
     let last = '';
     try { last = localStorage.getItem(LASTUSER_KEY) || ''; } catch (e) {}
     userField.value = last;
@@ -3104,11 +3155,32 @@
     loginNote.className = kind || '';
   }
 
+  // Blocks slurs and the obvious dodges (leetspeak, padding, repeats) from
+  // ending up on a public board.
+  const BANNED = [
+    /n[ ]?i[ ]?g[ ]?g+(er|a|uh)?/, /f[ ]?a[ ]?g+(ot|s)?/, /kike/, /chink/,
+    /spic[k]?/, /trann(y|ie)/, /retard/, /coon/, /wetback/, /paki/,
+    /nazi/, /hitler/, /rapist/
+  ];
+
+  // Normalise leetspeak first (n1gg4 -> nigga), then match. Catches the
+  // usual dodges: digits for letters, padding, repeated characters.
+  function cleanName(name) {
+    const flat = String(name).toLowerCase()
+      .replace(/[1!|l]/g, 'i').replace(/[3]/g, 'e').replace(/[4@]/g, 'a')
+      .replace(/[0]/g, 'o').replace(/[5$]/g, 's').replace(/[7]/g, 't')
+      .replace(/[^a-z]/g, '')
+      .replace(/(.)\1{2,}/g, '$1$1');
+    return !BANNED.some(re => re.test(flat));
+  }
+  window.cleanName = cleanName;
+
   function readFields() {
     const u = userField.value.trim().slice(0, 16);
     const p = passField.value;
     if (!u) { note('Enter a username.', 'bad'); userField.focus(); return null; }
     if (!/^[\w \-]+$/.test(u)) { note('Letters, numbers, spaces and dashes only.', 'bad'); return null; }
+    if (!cleanName(u)) { note('Pick a different name \u2014 that one is not allowed.', 'bad'); return null; }
     if (p.length < 4) { note('Password needs at least 4 characters.', 'bad'); passField.focus(); return null; }
     return { u: u, p: p };
   }
@@ -3176,6 +3248,17 @@
     SFX.trophy();
     startGame();
   }
+
+  window.togglePass = function () {
+    const eye = document.getElementById('pass-eye');
+    const on  = passField.type === 'password';
+    passField.type = on ? 'text' : 'password';
+    eye.textContent = on ? '\uD83D\uDE48' : '\uD83D\uDC41\uFE0F';
+    eye.classList.toggle('shown', on);
+    eye.setAttribute('aria-label', on ? 'Hide password' : 'Show password');
+    eye.setAttribute('title', on ? 'Hide password' : 'Show password');
+    passField.focus();
+  };
 
   window.doLogin  = signIn;
   window.doSignup = signUp;
