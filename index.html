@@ -1713,8 +1713,26 @@
     });
     hideTip();
     SFX.tab();
+    if (which === 'board') refreshBoardNow();
   }
   window.showPanel = showPanel;
+
+  // Opening the leaderboard fetches the latest, throttled so flicking between
+  // tabs doesn't hammer the database.
+  let lastPull = 0;
+  function refreshBoardNow() {
+    if (!Cloud.on()) return;
+    const now = Date.now();
+    if (now - lastPull < 2000) return;
+    lastPull = now;
+    const el = document.getElementById('board-msg');
+    if (el) el.textContent = 'Refreshing\u2026';
+    Promise.resolve(cloudSyncBoard()).then(function () {
+      if (!el) return;
+      el.textContent = Cloud.failed ? "Can't reach the leaderboard right now." : '';
+    });
+  }
+  window.refreshBoardNow = refreshBoardNow;
   function achContext() {
     const owned = BUILDINGS.reduce((a, b) => a + counts[b.id], 0);
     const vals  = BUILDINGS.map(b => counts[b.id]);
@@ -1770,7 +1788,7 @@
   // Paste your Firebase Realtime Database URL between the quotes to turn on
   // cross-device accounts. Setup takes about two minutes — see CLOUD SETUP at
   // the very top of this file. Left empty, everything stays on this device.
-  const CLOUD_URL = '';
+  const CLOUD_URL = 'https://jack-bruce-clicker-default-rtdb.firebaseio.com';
 
   const Cloud = {
     on() { return !!CLOUD_URL; },
@@ -1851,7 +1869,11 @@
     if (!Cloud.on()) return;
     if (currentUser) {
       const mine = board.find(e => e.u === currentUser.toLowerCase());
-      if (mine) await Cloud.put('board/' + mine.u, mine);
+      if (mine) {
+        const out = Object.assign({}, mine);
+        delete out.me;                 // "you" is decided per device, not stored
+        await Cloud.put('board/' + out.u, out);
+      }
     }
     const remote = await Cloud.get('board');
     if (!remote) return;
@@ -1967,6 +1989,9 @@
     syncBoard(true);
     nextSync = Date.now() + SYNC_EVERY;
     SFX.buy();
+    cloudPushSave();
+    lastPull = 0;                      // force a fresh pull
+    refreshBoardNow();
     boardMsg('Board updated.');
   }
   window.logRun = logRun;
@@ -2737,6 +2762,7 @@
     refreshAchievements();
     refreshShop();
     syncBoard(true);
+    cloudSyncBoard();
     updateDisplay();
     checkUpgrades();
   };
