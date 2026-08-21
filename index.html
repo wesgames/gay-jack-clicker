@@ -1308,13 +1308,24 @@
   // throws, the player still lands on the login screen instead of a blank page.
   window.addEventListener('error', function (ev) {
     try {
-      console.error('Recovered from a startup error:', ev.message);
-      const cs = document.getElementById('cutscene');
-      const lg = document.getElementById('login-screen');
+      console.error('Caught:', ev.message);
       const gw = document.getElementById('game-wrap');
-      const playing = gw && gw.classList.contains('visible');
-      if (cs) cs.style.display = 'none';
-      if (lg && !playing) lg.style.display = 'grid';
+      if (gw && gw.classList.contains('visible')) return;   // already playing; leave the intro alone
+
+      // Only step in if the intro has actually stalled. A stray error
+      // elsewhere shouldn't cut a perfectly good cutscene short.
+      const rescue = function () {
+        const cs = document.getElementById('cutscene');
+        const lg = document.getElementById('login-screen');
+        const g2 = document.getElementById('game-wrap');
+        if (g2 && g2.classList.contains('visible')) return;
+        const beat = window.__csHeartbeat || 0;
+        if (cs && cs.style.display !== 'none' && Date.now() - beat < 1500) return;  // still drawing
+        if (cs) cs.style.display = 'none';
+        if (lg && lg.style.display !== 'grid') lg.style.display = 'grid';
+      };
+      rescue();
+      setTimeout(rescue, 2500);
     } catch (e) {}
   });
 
@@ -2875,6 +2886,7 @@
     }
 
     function drawFrame(ts) {
+      window.__csHeartbeat = Date.now();   // proof the intro is still running
       if (!t0) t0 = ts;
       const T = ts - t0;
       hue = (hue + 2.2) % 360;
