@@ -1010,6 +1010,130 @@
   @media (max-width: 860px) {
     #who-wrap { right: 12px; top: 44px; }
   }
+
+  /* ===== WEATHER ===== */
+  #weather-canvas {
+    position: fixed; inset: 0;
+    z-index: 60; pointer-events: none;
+    display: none;
+  }
+
+  @keyframes storm-shake {
+    0%,92%,100% { transform: translate(0,0); }
+    93% { transform: translate(-3px, 2px); }
+    95% { transform: translate(4px, -2px); }
+    97% { transform: translate(-2px, -3px); }
+  }
+
+  body.storming #game-area { animation: storm-shake 3s infinite; }
+  body.storming { background-color: #0A0210; }
+
+  #weather-banner {
+    position: fixed; top: 14px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 70; display: none;
+    align-items: center; gap: 11px;
+    padding: 9px 18px 9px 14px;
+    background: rgba(16,7,24,0.94);
+    border: 2px solid var(--line);
+    border-radius: 99px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    backdrop-filter: blur(10px);
+    overflow: hidden;
+  }
+
+  #weather-banner::after {
+    content: ''; position: absolute;
+    left: 0; bottom: 0; height: 3px;
+    width: 100%; background: currentColor;
+    opacity: 0.5;
+  }
+
+  #w-bar {
+    position: absolute; left: 0; bottom: 0;
+    height: 3px; width: 100%;
+    background: currentColor;
+    transition: width 0.25s linear;
+    z-index: 1;
+  }
+
+  #w-icon { font-size: 1.3rem; }
+
+  #weather-timer {
+    position: fixed; top: 14px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 69; display: none;
+    align-items: center; gap: 9px;
+    padding: 7px 16px;
+    background: rgba(16,7,24,0.8);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    backdrop-filter: blur(8px);
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+
+  #weather-timer .wt-label {
+    font-size: 0.64rem; font-weight: 900;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  #wt-time {
+    font-family: 'Fredoka One', cursive;
+    font-size: 0.92rem; color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  #wt-bar {
+    position: absolute; left: 0; bottom: 0;
+    height: 2px; width: 0;
+    background: linear-gradient(90deg, #4FB8FF, #CFEBFF, #7CFF3B, #C77DFF);
+    transition: width 0.25s linear;
+  }
+
+  #weather-timer.soon {
+    border-color: var(--gold);
+    animation: storm-pulse 0.8s ease-in-out infinite;
+  }
+  #weather-timer.soon #wt-time { color: var(--gold); }
+  #weather-timer.soon .wt-label { color: var(--gold); }
+
+  #w-name {
+    font-family: 'Fredoka One', cursive;
+    font-size: 0.9rem; color: var(--text);
+  }
+
+  #w-mult {
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.05rem;
+  }
+
+  #w-time {
+    font-size: 0.78rem; font-weight: 800;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  #weather-banner.w-rain  { color: #4FB8FF; border-color: #4FB8FF; }
+  #weather-banner.w-snow  { color: #CFEBFF; border-color: #CFEBFF; }
+  #weather-banner.w-acid  { color: #7CFF3B; border-color: #7CFF3B;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5), 0 0 26px rgba(124,255,59,0.4); }
+  #weather-banner.w-storm { color: #C77DFF; border-color: #C77DFF;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5), 0 0 34px rgba(199,125,255,0.6);
+    animation: storm-pulse 0.9s ease-in-out infinite; }
+
+  @keyframes storm-pulse {
+    0%,100% { box-shadow: 0 8px 30px rgba(0,0,0,0.5), 0 0 34px rgba(199,125,255,0.55); }
+    50%     { box-shadow: 0 8px 30px rgba(0,0,0,0.5), 0 0 52px rgba(199,125,255,0.95); }
+  }
+
+  #weather-banner.w-storm #w-mult { animation: storm-pulse 0.6s infinite; }
+
+  @media (max-width: 860px) {
+    #weather-banner { top: 8px; padding: 7px 14px 7px 11px; gap: 8px; }
+    #w-name { font-size: 0.78rem; }
+  }
 </style>
 </head>
 <body>
@@ -1043,7 +1167,22 @@
 </div>
 
 
+<canvas id="weather-canvas"></canvas>
 <canvas id="trail"></canvas>
+
+<div id="weather-timer">
+  <span class="wt-label">Next weather</span>
+  <span id="wt-time"></span>
+  <div id="wt-bar"></div>
+</div>
+
+<div id="weather-banner">
+  <span id="w-icon"></span>
+  <span id="w-name"></span>
+  <span id="w-mult"></span>
+  <span id="w-time"></span>
+  <div id="w-bar"></div>
+</div>
 
 <!-- LOGIN -->
 <div id="login-screen">
@@ -1596,7 +1735,25 @@
         [659, 784, 1047, 1319].forEach((f, i) =>
           tone({ from: f, to: f, dur: 0.3, type: 'triangle', vol: 0.14, delay: i * 0.1 }));
       },
-      tab() { tone({ from: 900, to: 900, dur: 0.04, type: 'sine', vol: 0.07 }); }
+      tab() { tone({ from: 900, to: 900, dur: 0.04, type: 'sine', vol: 0.07 }); },
+      weather(kind) {              // a herald for each kind of weather
+        if (kind === 'storm') {
+          tone({ from: 160, to: 60, dur: 1.1, type: 'sawtooth', vol: 0.16 });
+          noise({ dur: 1.2, freq: 320, vol: 0.2, filter: 'lowpass' });
+        } else if (kind === 'acid') {
+          tone({ from: 300, to: 900, dur: 0.5, type: 'square', vol: 0.11 });
+          noise({ dur: 0.6, freq: 2400, vol: 0.09 });
+        } else if (kind === 'snow') {
+          [1047, 1319, 1568].forEach((f, i) =>
+            tone({ from: f, to: f, dur: 0.5, type: 'sine', vol: 0.1, delay: i * 0.12 }));
+        } else {
+          noise({ dur: 0.8, freq: 1400, vol: 0.1, filter: 'lowpass' });
+        }
+      },
+      thunder() {
+        tone({ from: 90, to: 38, dur: 1.4, type: 'sawtooth', vol: 0.13 });
+        noise({ dur: 1.5, freq: 260, vol: 0.22, filter: 'lowpass' });
+      }
     };
   })();
 
@@ -1612,6 +1769,9 @@
     GLOBAL_UPGRADES.forEach(u => { if (boughtUp.has(u.id)) autoPerSec *= 2; });
     clickPower *= (1 + unlockedAch.size * ACH_BONUS);
     clickPower += autoPerSec * 0.01;  // clicks scale a little with your empire
+    const wm = weatherMult();         // weather boosts everything
+    clickPower *= wm;
+    autoPerSec *= wm;
   }
 
   function updateDisplay() {
@@ -1784,6 +1944,268 @@
   }
 
   setInterval(() => { stats.time++; checkAchievements(); }, 1000);
+  // ===== WEATHER EVENTS =====
+  // One rolls every minute while you're playing. Rarer weather pays far better.
+  const WEATHER = [
+    { id:'rain',  name:'Rain',            icon:'\u{1F327}\uFE0F', mult:1.5, dur:120000, weight:60, tint:'#4FB8FF' },
+    { id:'snow',  name:'Snow',            icon:'\u2744\uFE0F',    mult:2,   dur:180000, weight:25, tint:'#CFEBFF' },
+    { id:'acid',  name:'Acid Rain',       icon:'\u2623\uFE0F',    mult:5,   dur:90000,  weight:8,  tint:'#7CFF3B' },
+    { id:'storm', name:'Lightning Storm', icon:'\u26A1',          mult:10,  dur:30000,  weight:2,  tint:'#C77DFF' },
+  ];
+
+  let weather = null, weatherEnds = 0;
+  const WEATHER_EVERY = 300000;              // one event every 5 minutes
+  let nextWeatherAt = 0;
+
+  function armWeatherClock() { nextWeatherAt = Date.now() + WEATHER_EVERY; }
+  window.armWeatherClock = armWeatherClock;
+
+  function weatherMult() { return weather ? weather.mult : 1; }
+
+  function pickWeather() {
+    const total = WEATHER.reduce((a, w) => a + w.weight, 0);
+    let r = Math.random() * total;
+    for (const w of WEATHER) { r -= w.weight; if (r <= 0) return w; }
+    return WEATHER[0];
+  }
+
+  function startWeather(w) {
+    weather = w;
+    weatherEnds = Date.now() + w.dur;
+    recalc(); updateDisplay();
+    const b = document.getElementById('weather-banner');
+    b.style.display = 'flex';
+    b.className = 'w-' + w.id;
+    document.getElementById('w-icon').textContent = w.icon;
+    document.getElementById('w-name').textContent = w.name;
+    document.getElementById('w-mult').textContent = '\u00d7' + w.mult;
+    WeatherFX.start(w);
+    SFX.weather(w.id);
+    if (w.id === 'storm') document.body.classList.add('storming');
+  }
+
+  function endWeather() {
+    weather = null;
+    armWeatherClock();                        // countdown restarts once it clears
+    recalc(); updateDisplay();
+    document.getElementById('weather-banner').style.display = 'none';
+    document.body.classList.remove('storming');
+    WeatherFX.stop();
+  }
+
+  function rollWeather() {
+    if (weather || !currentUser) return;      // one at a time, and only while playing
+    startWeather(pickWeather());
+  }
+
+  function clock(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  setInterval(function () {
+    const timer = document.getElementById('weather-timer');
+
+    if (weather) {                            // an event is running
+      timer.style.display = 'none';
+      const left = weatherEnds - Date.now();
+      if (left <= 0) { endWeather(); return; }
+      document.getElementById('w-time').textContent = clock(left);
+      document.getElementById('w-bar').style.width = (left / weather.dur * 100) + '%';
+      return;
+    }
+
+    if (!currentUser) { timer.style.display = 'none'; return; }
+
+    const wait = nextWeatherAt - Date.now();
+    if (wait <= 0) { rollWeather(); return; }
+    timer.style.display = 'flex';
+    document.getElementById('wt-time').textContent = clock(wait);
+    document.getElementById('wt-bar').style.width =
+      (100 - wait / WEATHER_EVERY * 100) + '%';
+    timer.classList.toggle('soon', wait <= 10000);
+  }, 200);
+
+  // ---- falling particles + storm effects ----
+  const WeatherFX = (function () {
+    const cv = document.getElementById('weather-canvas');
+    let g = null;
+    try { g = cv.getContext('2d'); } catch (e) { g = null; }
+
+    let W = 0, H = 0, DPR = 1, raf = 0, kind = null;
+    let drops = [], flakes = [], bolts = [], flash = 0;
+
+    function size() {
+      if (!g) return;
+      DPR = Math.min(window.devicePixelRatio || 1, 2);
+      W = window.innerWidth; H = window.innerHeight;
+      cv.width = W * DPR; cv.height = H * DPR;
+      cv.style.width = W + 'px'; cv.style.height = H + 'px';
+      g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    }
+    window.addEventListener('resize', size);
+
+    function seed(w) {
+      drops = []; flakes = []; bolts = [];
+      const heavy = (w.id === 'storm');
+      if (w.id === 'rain' || w.id === 'acid' || heavy) {
+        const n = heavy ? 320 : (w.id === 'acid' ? 240 : 200);
+        for (let i = 0; i < n; i++) {
+          drops.push({
+            x: Math.random() * W, y: Math.random() * H,
+            len: 12 + Math.random() * 22,
+            sp: (heavy ? 15 : 10) + Math.random() * 10,
+            a: 0.25 + Math.random() * 0.5
+          });
+        }
+      }
+      if (w.id === 'snow') {
+        for (let i = 0; i < 170; i++) {
+          flakes.push({
+            x: Math.random() * W, y: Math.random() * H,
+            r: 1.5 + Math.random() * 3.5,
+            sp: 0.6 + Math.random() * 1.6,
+            sway: Math.random() * 6.28,
+            swaySp: 0.01 + Math.random() * 0.03,
+            a: 0.5 + Math.random() * 0.5
+          });
+        }
+      }
+    }
+
+    // a jagged bolt, drawn top-down with a couple of branches
+    function makeBolt() {
+      const x0 = Math.random() * W;
+      const pts = [{ x: x0, y: -20 }];
+      let x = x0, y = -20;
+      while (y < H * (0.55 + Math.random() * 0.4)) {
+        y += 18 + Math.random() * 42;
+        x += (Math.random() - 0.5) * 90;
+        pts.push({ x: x, y: y });
+      }
+      const branches = [];
+      for (let i = 2; i < pts.length - 1; i++) {
+        if (Math.random() < 0.4) {
+          const b = [pts[i]];
+          let bx = pts[i].x, by = pts[i].y;
+          for (let k = 0; k < 3; k++) {
+            by += 14 + Math.random() * 26;
+            bx += (Math.random() - 0.5) * 70;
+            b.push({ x: bx, y: by });
+          }
+          branches.push(b);
+        }
+      }
+      bolts.push({ pts: pts, branches: branches, life: 1 });
+      flash = Math.max(flash, 0.55 + Math.random() * 0.35);
+      SFX.thunder();
+    }
+
+    function stroke(pts, width, colour, alpha) {
+      g.strokeStyle = colour;
+      g.globalAlpha = alpha;
+      g.lineWidth = width;
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      g.beginPath();
+      pts.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y));
+      g.stroke();
+    }
+
+    let nextBolt = 0;
+
+    function frame() {
+      if (!g || !kind) return;
+      g.clearRect(0, 0, W, H);
+
+      if (kind === 'storm' && Date.now() > nextBolt) {
+        makeBolt();
+        nextBolt = Date.now() + 400 + Math.random() * 1400;
+      }
+
+      // rain-type streaks
+      if (drops.length) {
+        const acid  = kind === 'acid';
+        const storm = kind === 'storm';
+        const col   = acid ? '124,255,59' : (storm ? '160,190,255' : '79,184,255');
+        const slant = storm ? 5 : 2.5;
+        g.globalCompositeOperation = acid ? 'lighter' : 'source-over';
+        drops.forEach(d => {
+          d.y += d.sp; d.x += slant;
+          if (d.y > H) { d.y = -d.len; d.x = Math.random() * W; }
+          if (d.x > W) d.x = -5;
+          g.strokeStyle = 'rgba(' + col + ',' + d.a + ')';
+          g.lineWidth = acid ? 2 : 1.4;
+          g.beginPath();
+          g.moveTo(d.x, d.y);
+          g.lineTo(d.x - slant * 2, d.y + d.len);
+          g.stroke();
+        });
+        g.globalCompositeOperation = 'source-over';
+      }
+
+      // snow
+      if (flakes.length) {
+        flakes.forEach(f => {
+          f.y += f.sp;
+          f.sway += f.swaySp;
+          f.x += Math.sin(f.sway) * 0.8;
+          if (f.y > H) { f.y = -8; f.x = Math.random() * W; }
+          g.fillStyle = 'rgba(255,255,255,' + f.a + ')';
+          g.beginPath();
+          g.arc(f.x, f.y, f.r, 0, 6.284);
+          g.fill();
+        });
+      }
+
+      // bolts
+      if (bolts.length) {
+        g.globalCompositeOperation = 'lighter';
+        for (let i = bolts.length - 1; i >= 0; i--) {
+          const b = bolts[i];
+          b.life -= 0.055;
+          if (b.life <= 0) { bolts.splice(i, 1); continue; }
+          const a = Math.max(0, b.life);
+          stroke(b.pts, 9, '#9B5CFF', a * 0.5);
+          stroke(b.pts, 4, '#DDB8FF', a * 0.85);
+          stroke(b.pts, 1.6, '#FFFFFF', a);
+          b.branches.forEach(br => {
+            stroke(br, 3, '#B98CFF', a * 0.5);
+            stroke(br, 1, '#FFFFFF', a * 0.8);
+          });
+        }
+        g.globalCompositeOperation = 'source-over';
+        g.globalAlpha = 1;
+      }
+
+      if (flash > 0.01) {
+        g.fillStyle = 'rgba(214,180,255,' + (flash * 0.45) + ')';
+        g.fillRect(0, 0, W, H);
+        flash *= 0.82;
+      }
+
+      raf = requestAnimationFrame(frame);
+    }
+
+    return {
+      start(w) {
+        if (!g) return;
+        kind = w.id;
+        size(); seed(w);
+        cv.style.display = 'block';
+        nextBolt = Date.now() + 300;
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(frame);
+      },
+      stop() {
+        kind = null;
+        cancelAnimationFrame(raf);
+        if (g) g.clearRect(0, 0, W, H);
+        cv.style.display = 'none';
+      }
+    };
+  })();
+
   // ===== CLOUD SYNC =====
   // Paste your Firebase Realtime Database URL between the quotes to turn on
   // cross-device accounts. Setup takes about two minutes — see CLOUD SETUP at
@@ -2043,6 +2465,29 @@
   }
 
   loadBoard();
+
+  // Wipe every score everywhere: open the game with ?resetboard on the end of
+  // the URL. Clears this device and the shared database, then forgets the flag
+  // so a refresh doesn't wipe it again.
+  (function () {
+    if (!/[?&]resetboard\b/i.test(location.search)) return;
+    board = [];
+    lastSync = '';
+    saveBoard();
+    const done = function (msg) {
+      const el = document.getElementById('board-msg');
+      if (el) el.textContent = msg;
+      try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    };
+    if (Cloud.on()) {
+      Cloud.put('board', null).then(function (ok) {
+        done(ok ? 'Leaderboard reset for everyone.' : 'Cleared here, but the server refused.');
+      });
+    } else {
+      done('Leaderboard cleared on this device.');
+    }
+  })();
+
   renderBoard();
 
   // ===== SAVE =====
@@ -2763,6 +3208,7 @@
     refreshShop();
     syncBoard(true);
     cloudSyncBoard();
+    armWeatherClock();
     updateDisplay();
     checkUpgrades();
   };
