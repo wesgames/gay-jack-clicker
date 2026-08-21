@@ -1,4 +1,27 @@
 <!DOCTYPE html>
+<!--
+  ============================ CLOUD SETUP ============================
+  By default this game keeps everything on the device it is opened on,
+  so an account made on your phone will not exist on your PC.
+
+  To log in on any device with the same account:
+
+   1. Go to https://console.firebase.google.com and create a project
+      (free, no card needed).
+   2. In the left menu pick Build > Realtime Database, then Create
+      Database. Choose "Start in test mode".
+   3. Copy the database URL shown at the top. It looks like:
+         https://your-project-default-rtdb.firebaseio.com
+   4. In this file, find:   const CLOUD_URL = '';
+      and paste the URL between the quotes.
+   5. Put the file online (GitHub Pages, Netlify drop, or any host) and
+      open that link on both devices. Accounts, saves and the leaderboard
+      then follow you everywhere.
+
+  Note: test mode leaves the database publicly readable, so keep using a
+  throwaway password. This is a joke clicker, not a bank.
+  =====================================================================
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -976,6 +999,14 @@
     color: var(--gold); letter-spacing: 0.06em;
   }
 
+  #cloud-chip {
+    font-size: 0.64rem; font-weight: 800;
+    color: var(--faint); letter-spacing: 0.06em;
+  }
+  #cloud-chip:empty { display: none; }
+  #cloud-chip.ok   { color: var(--mint); }
+  #cloud-chip.warn { color: var(--gold); }
+
   @media (max-width: 860px) {
     #who-wrap { right: 12px; top: 44px; }
   }
@@ -1001,6 +1032,7 @@
 <!-- SOUND CONTROLS -->
 <div id="who-wrap">
   <span id="who"></span>
+  <span id="cloud-chip"></span>
   <button class="sound-btn" onclick="logOut()">Log out</button>
 </div>
 
@@ -1029,7 +1061,7 @@
     <div id="login-note"></div>
     <button class="login-btn go" onclick="doLogin()">Log in</button>
     <button class="login-btn alt" onclick="doSignup()">Create account</button>
-    <div id="login-warn">Accounts are stored in this browser only, so use a throwaway password — not one you use anywhere else.</div>
+    <div id="login-warn">Use a throwaway password — not one you use anywhere else.<br><span id="login-mode"></span></div>
   </div>
 </div>
 
@@ -1615,7 +1647,6 @@
     { id:'a16', icon:'\u2728', name:'Good Catch',     desc:'Catch a golden Bruce',    test: s => s.bonus >= 1 },
     { id:'a17', icon:'\u{1F3A3}', name:'Sharp Eyes',     desc:'Catch 25 golden Bruces',  test: s => s.bonus >= 25 },
     { id:'a18', icon:'\u23F1\uFE0F', name:'Dedicated',     desc:'Play for 1 hour',         test: s => s.time >= 3600 },
-
     { id:'a19', icon:'\u{1FA78}', name:'Blister',        desc:'100,000 clicks',            test: s => s.clicks >= 1e5 },
     { id:'a20', icon:'\u{1F915}', name:'Carpal Tunnel',  desc:'1,000,000 clicks',          test: s => s.clicks >= 1e6 },
     { id:'a21', icon:'\u{1F52B}', name:'Machine Gun',    desc:'100 clicks in 10 seconds',  test: s => s.burst >= 100 },
@@ -1735,6 +1766,106 @@
   }
 
   setInterval(() => { stats.time++; checkAchievements(); }, 1000);
+  // ===== CLOUD SYNC =====
+  // Paste your Firebase Realtime Database URL between the quotes to turn on
+  // cross-device accounts. Setup takes about two minutes — see CLOUD SETUP at
+  // the very top of this file. Left empty, everything stays on this device.
+  const CLOUD_URL = '';
+
+  const Cloud = {
+    on() { return !!CLOUD_URL; },
+    _url(path) { return CLOUD_URL.replace(/\/+$/, '') + '/' + path + '.json'; },
+
+    failed: false,
+
+    async get(path) {
+      if (!this.on()) return null;
+      this.failed = false;
+      try {
+        const r = await fetch(this._url(path), { cache: 'no-store' });
+        if (!r.ok) { this.failed = true; return null; }
+        return await r.json();
+      } catch (e) { this.failed = true; return null; }
+    },
+
+    async put(path, data, keepalive) {
+      if (!this.on()) return false;
+      try {
+        const r = await fetch(this._url(path), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+          keepalive: !!keepalive
+        });
+        return r.ok;
+      } catch (e) { return false; }
+    }
+  };
+
+  function cloudStatus(text, kind) {
+    const el = document.getElementById('cloud-chip');
+    if (!el) return;
+    el.textContent = text;
+    el.className = kind || '';
+  }
+
+  // Whichever save has earned more is the one that's further along, so that's
+  // the one we keep. Guards against an old phone session overwriting the PC.
+  function betterSave(a, b) {
+    const ea = (a && a.stats && a.stats.earned) || -1;
+    const eb = (b && b.stats && b.stats.earned) || -1;
+    return eb > ea ? b : a;
+  }
+
+  function parseSave(raw) {
+    try { return typeof raw === 'string' ? JSON.parse(raw) : raw; }
+    catch (e) { return null; }
+  }
+
+  // pull this account's save down and keep the further-along one
+  async function cloudPullSave(key) {
+    if (!Cloud.on()) return;
+    cloudStatus('Syncing\u2026');
+    const remote = await Cloud.get('saves/' + key);
+    if (Cloud.failed) {
+      cloudStatus("Offline \u2014 this device only", 'warn');
+      return;
+    }
+    const local = parseSave(LS.get(SAVE_KEY));
+    const best  = betterSave(local, remote);
+    if (best && best !== local) LS.set(SAVE_KEY, JSON.stringify(best));
+    cloudStatus(remote ? 'Synced' : 'Synced (new save)', 'ok');
+  }
+
+  async function cloudPushSave(keepalive) {
+    if (!Cloud.on() || !currentUser) return;
+    const key  = currentUser.toLowerCase();
+    const data = parseSave(LS.get(SAVE_KEY));
+    if (!data) return;
+    const ok = await Cloud.put('saves/' + key, data, keepalive);
+    cloudStatus(ok ? 'Synced' : 'Offline \u2014 saved here', ok ? 'ok' : 'warn');
+  }
+
+  // the board becomes genuinely shared once the cloud is on
+  async function cloudSyncBoard() {
+    if (!Cloud.on()) return;
+    if (currentUser) {
+      const mine = board.find(e => e.u === currentUser.toLowerCase());
+      if (mine) await Cloud.put('board/' + mine.u, mine);
+    }
+    const remote = await Cloud.get('board');
+    if (!remote) return;
+    Object.keys(remote).forEach(k => {
+      const r = remote[k];
+      if (!r || typeof r.s !== 'number') return;
+      const local = board.find(e => e.u === k);
+      if (!local) board.push(r);
+      else if (r.s > local.s) Object.assign(local, r);
+    });
+    saveBoard();
+    renderBoard();
+  }
+
   // ===== LEADERBOARD =====
   const BOARD_KEY = 'jbc2_board_v1';
   const NAME_KEY  = 'jbc2_name';
@@ -1813,6 +1944,8 @@
     nextSync = Date.now() + SYNC_EVERY;
     if (!currentUser) return;
     try { syncBoard(true); } catch (e) {}
+    cloudPushSave();
+    cloudSyncBoard();
   }
 
   setInterval(runSync, SYNC_EVERY);
@@ -1826,7 +1959,7 @@
   }, 1000);
 
   window.addEventListener('beforeunload', function () {
-    try { if (currentUser) syncBoard(true); } catch (e) {}
+    try { if (currentUser) { syncBoard(true); cloudPushSave(true); } } catch (e) {}
   });
 
   function logRun() {
@@ -2470,6 +2603,12 @@
   }
 
   const loginScreen = document.getElementById('login-screen');
+  (function () {
+    const el = document.getElementById('login-mode');
+    if (el) el.textContent = CLOUD_URL
+      ? 'Cross-device sync enabled.'
+      : 'This device only — see CLOUD SETUP at the top of the file.';
+  })();
   const userField   = document.getElementById('login-user');
   const passField   = document.getElementById('login-pass');
   const loginNote   = document.getElementById('login-note');
@@ -2481,9 +2620,13 @@
     userField.value = last;
     passField.value = '';
     setTimeout(() => (last ? passField : userField).focus(), 60);
-    const n = Object.keys(accounts()).length;
-    note(n ? n + (n === 1 ? ' player on this device' : ' players on this device')
-           : 'First time here? Pick a name and password to start.', 'dim');
+    if (Cloud.on()) {
+      note('Cloud sync is on \u2014 this account works on any device.', 'dim');
+    } else {
+      const n = Object.keys(accounts()).length;
+      note(n ? n + (n === 1 ? ' player on this device' : ' players on this device')
+             : 'First time here? Pick a name and password to start.', 'dim');
+    }
   }
 
   function note(text, kind) {
@@ -2502,8 +2645,18 @@
 
   async function signIn() {
     const f = readFields(); if (!f) { SFX.deny(); return; }
+    const key = f.u.toLowerCase();
     const all = accounts();
-    const acct = all[f.u.toLowerCase()];
+    let acct = all[key];
+    if (Cloud.on()) {
+      note('Checking\u2026', 'dim');
+      const remote = await Cloud.get('accounts/' + key);
+      if (remote && remote.hash) {
+        acct = remote;
+        all[key] = remote;      // cache it so this device works offline later
+        putAccounts(all);
+      }
+    }
     if (!acct) { note('No account called "' + f.u + '". Create one?', 'bad'); SFX.deny(); return; }
     const h = await hashPass(f.p, acct.salt);
     if (h !== acct.hash) { note('Wrong password.', 'bad'); SFX.deny(); return; }
@@ -2515,14 +2668,24 @@
     const all = accounts();
     const key = f.u.toLowerCase();
     if (all[key]) { note('That name is taken on this device.', 'bad'); SFX.deny(); return; }
+    if (Cloud.on()) {
+      note('Checking\u2026', 'dim');
+      const taken = await Cloud.get('accounts/' + key);
+      if (taken && taken.hash) {
+        note('That name is already registered. Log in instead?', 'bad');
+        SFX.deny(); return;
+      }
+    }
     const salt = randomSalt();
-    all[key] = { name: f.u, salt: salt, hash: await hashPass(f.p, salt), made: Date.now() };
+    const rec  = { name: f.u, salt: salt, hash: await hashPass(f.p, salt), made: Date.now() };
+    all[key] = rec;
     putAccounts(all);
+    if (Cloud.on()) await Cloud.put('accounts/' + key, rec);
     note('Account created.', 'good');
     enter(f.u);
   }
 
-  function enter(name) {
+  async function enter(name) {
     currentUser = name;
     try { localStorage.setItem(LASTUSER_KEY, name); } catch (e) {}
     SAVE_KEY = 'jbc2_save_v2_' + name.toLowerCase();
@@ -2534,6 +2697,8 @@
         if (legacy) { LS.set(SAVE_KEY, legacy); LS.del('jbc2_save_v2'); }
       }
     } catch (e) {}
+
+    await cloudPullSave(name.toLowerCase());
 
     loginScreen.style.display = 'none';
     document.getElementById('who').textContent = name;
